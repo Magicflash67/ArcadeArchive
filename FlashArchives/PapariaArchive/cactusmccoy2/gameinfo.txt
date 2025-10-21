@@ -1,0 +1,19 @@
+Name:		Cactus McCoy 2
+Developer:	Flipline Studios
+Size:		608 x 480
+Screenshots:	http://www.flipline.com/games/cactusmccoy2/screenshots.html
+Category:	Adventure / Platformer
+
+Version: 	2.1
+Updated: 	06/08/18
+Includes: 	Fixed issue with Loading Levels on Flash Player 30
+
+Description:
+Cactus McCoy returns for a brand-new epic adventure! After a struggle with rival treasure hunter Ella Windstorm, McCoy learns of the ruins of Calavera and the riches it holds in the distant lands to the south. When an ancient enemy appears and kidnaps Ella, McCoy sets out on an epic journey across the continent to find Ella and claim the treasure of Calavera. Once again, McCoy will have to run, jump, and fight his way through swarms of enemies across diverse areas, using anything he can find along the trail to help him reach the treasure.
+
+Instructions:
+Use the arrow keys to move, A to jump, S to attack.  Follow the in-game tutorial for more information.
+
+
+
+

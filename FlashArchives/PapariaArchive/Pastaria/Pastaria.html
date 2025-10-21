@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>  
+<head>
+  <meta charset="UTF-8">
+  <title>Flash Archive</title>
+  <link rel="icon" type="image/x-icon" href="../../../Images/MainPageLogo/ControllerMagic.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Montserrat">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+  <script src="../../../Ruffle/ruffle.js"></script>
+  <style>
+    body, h1,h2,h3,h4,h5,h6 {font-family: "Montserrat", sans-serif; margin:0; padding:0;}
+    body {
+  background-image: url('../../../Images/MainPageLogo/magicGamesBackground.jpg');
+      background-size: cover;
+      background-attachment: fixed;
+      background-position: center;
+      color: white;
+    }
+    .w3-sidebar {width: 120px; background: rgba(34,34,34,0.9);}
+    #main {margin-left: 120px; padding: 20px; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh;}
+    #player-wrapper {
+      background-color: rgba(0,0,0,0.85);
+      border: 10px solid #b300ff;
+      padding: 20px;
+      text-align: center;
+      max-width: 1000px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #player {
+      width: 100%;
+      height: 600px;
+      max-height: 90vh;
+    }
+    button {
+      background-color: #b300ff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 10px 5px;
+      cursor: pointer;
+      font-size: 16px;
+      border-radius: 5px;
+    }
+    button:hover {background-color: #9900cc;}
+    #player-wrapper.fullscreen {
+      width: 100vw !important;
+      height: 100vh !important;
+      max-width: 100vw !important;
+      max-height: 100vh !important;
+      border: none;
+      padding: 0;
+    }
+    #player-wrapper.fullscreen #player {
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body class="w3-black">
+ 
+
+<div id="main">
+  <div id="player-wrapper">
+    <h1>Pastaria</h1>
+    <div id="player"></div>
+    <div>
+      <button id="exportSave">Export Save</button>
+      <button id="importSave">Load Save</button>
+      <button id="fullscreenBtn">Fullscreen</button>
+      <input type="file" id="fileInput" accept="application/json" style="display:none">
+    </div>
+  </div>
+</div>
+
+<script>
+  const ruffle = window.RufflePlayer.newest();
+  const player = ruffle.createPlayer();
+  player.style.width = "100%";
+  player.style.height = "100%";
+  document.getElementById("player").appendChild(player);
+  player.load("./papaspastaria.swf");
+
+  function saveToCookies() {
+    const saveData = JSON.stringify(localStorage);
+    document.cookie = "flashSave=" + encodeURIComponent(saveData) + "; path=/; max-age=" + (60*60*24*365);
+  }
+
+  function loadFromCookies() {
+    const cookies = document.cookie.split("; ").find(row => row.startsWith("flashSave="));
+    if (cookies) {
+      try {
+        const saveData = JSON.parse(decodeURIComponent(cookies.split("=")[1]));
+        for (const key in saveData) localStorage.setItem(key, saveData[key]);
+      } catch(e){ console.error(e); }
+    }
+  }
+
+  function exportSave() {
+    const blob = new Blob([JSON.stringify(localStorage, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "flash-save.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  function importSave(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const saveData = JSON.parse(e.target.result);
+        for (const key in saveData) localStorage.setItem(key, saveData[key]);
+        saveToCookies();
+        alert("Save imported! Reload game if needed.");
+      } catch { alert("Invalid save file!"); }
+    };
+    reader.readAsText(file);
+  }
+
+  const fullscreenBtn = document.getElementById("fullscreenBtn");
+  const wrapper = document.getElementById("player-wrapper");
+
+  fullscreenBtn.addEventListener("click", () => {
+    if (!document.fullscreenElement) {
+      wrapper.requestFullscreen().then(() => {
+        wrapper.classList.add("fullscreen");
+      }).catch(err => alert());
+    } else {
+      document.exitFullscreen().then(() => {
+        wrapper.classList.remove("fullscreen");
+      });
+    }
+  });
+
+  document.getElementById("exportSave").addEventListener("click", exportSave);
+  document.getElementById("importSave").addEventListener("click", () => document.getElementById("fileInput").click());
+  document.getElementById("fileInput").addEventListener("change", e => { if(e.target.files.length>0) importSave(e.target.files[0]); });
+
+  loadFromCookies();
+  setInterval(saveToCookies, 10000);
+</script>
+
+</body>
+</html>

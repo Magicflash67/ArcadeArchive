@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>BlockBlast — Upgrade Blocks + Spawn Move</title>
+<style>
+  :root{ --bg:#071428; --panel:#0b1320; --accent:#6ee7b7; --muted:#9aa4b2; }
+  html,body{ height:100%; margin:0; font-family:Inter,system-ui,Arial; background:linear-gradient(180deg,var(--bg),#031324); color:#e7eef8; display:flex; align-items:center; justify-content:center; }
+  .Wrapper{ width:460px; max-width:96%; }
+  canvas{ display:block; width:100%; height:720px; border-radius:10px; background:linear-gradient(180deg,#071428,#041227); box-shadow:0 10px 30px rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.03); }
+  .Hud{ margin-top:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:14px; color:var(--muted); }
+  .Button{ background:transparent; border:1px solid rgba(255,255,255,0.05); color:var(--muted); padding:6px 10px; border-radius:8px; cursor:pointer; }
+  .Small{ font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+  <div class="Wrapper">
+    <canvas id="Canvas" width="460" height="720"></canvas>
+    <div class="Hud">
+      <div>Score: <span id="Score">0</span></div>
+      <div>Level: <span id="Level">1</span></div>
+      <div>Balls: <span id="BallCount">1</span></div>
+      <div>Damage: <span id="Damage">1</span></div>
+      <button id="RestartBtn" class="Button">Restart</button>
+    </div>
+  </div>
+
+<script>
+/* BlockBlast — Upgrade blocks & spawn where first ball lands
+   PascalCase naming.
+*/
+
+const Canvas = document.getElementById('Canvas');
+const Ctx = Canvas.getContext('2d', { alpha: false });
+
+const ScoreEl = document.getElementById('Score');
+const LevelEl = document.getElementById('Level');
+const BallCountEl = document.getElementById('BallCount');
+const DamageEl = document.getElementById('Damage');
+const RestartBtn = document.getElementById('RestartBtn');
+
+let CanvasW = Canvas.width;
+let CanvasH = Canvas.height;
+
+// Settings
+const BallRadius = 6;
+const LaunchSpeed = 9;
+const MaxColumns = 7;
+const RowHeight = 52;
+const BlockPadding = 6;
+const OutOfBoundsMargin = 160;
+
+// Player state (upgrades)
+let HeldBallCount = 1;
+let PlayerDamage = 1;
+let ExplosiveAbility = false;
+
+// Game runtime state
+let Blocks = [];
+let Balls = [];
+let Score = 0;
+let Level = 1;
+
+let IsAiming = false;
+let AimStart = null;
+let AimEnd = null;
+
+let IsShooting = false;
+let RemainingToLaunch = 0;
+let NextLaunchTimer = 0;
+let ActiveBallCount = 0;
+let LaunchDirection = { x: 0, y: -1 };
+
+// Spawn X starts centered; will move to first-returned ball X
+let BallSpawnX = CanvasW / 2;
+
+// Track first-return in a round
+let FirstReturnCaptured = false;
+
+function RandInt(Min, Max){ return Math.floor(Math.random() * (Max - Min + 1)) + Min; }
+
+class Block {
+  constructor(Row, Col, Hp, Type='Normal'){
+    this.Row = Row;
+    this.Col = Col;
+    this.Hp = Hp;
+    this.Type = Type; // 'Normal' | 'AddBall' | 'PlusDamage' | 'Explosive'
+    this.Alive = true;
+    this.UpdateRect();
+  }
+  UpdateRect(){
+    const cols = MaxColumns;
+    const cellW = (CanvasW - BlockPadding*(cols+1)) / cols;
+    const x = BlockPadding + this.Col * (cellW + BlockPadding);
+    const y = BlockPadding + this.Row * (RowHeight + BlockPadding);
+    this.Rect = { x, y, w: cellW, h: RowHeight };
+  }
+  Draw(){
+    if(!this.Alive) return;
+    // color by type
+    if(this.Type === 'AddBall'){ Ctx.fillStyle = 'rgb(120,200,255)'; }
+    else if(this.Type === 'PlusDamage'){ Ctx.fillStyle = 'rgb(255,200,120)'; }
+    else if(this.Type === 'Explosive'){ Ctx.fillStyle = 'rgb(255,120,140)'; }
+    else {
+      const t = Math.min(1, this.Hp / 25);
+      const r = Math.floor(255 * Math.min(1, 2*t));
+      const g = Math.floor(255 * Math.min(1, 2*(1-t)));
+      Ctx.fillStyle = `rgb(${r},${g},60)`;
+    }
+    RoundRect(Ctx, this.Rect.x, this.Rect.y, this.Rect.w, this.Rect.h, 8);
+    Ctx.fill();
+    Ctx.lineWidth = 2;
+    Ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    Ctx.stroke();
+
+    // label
+    Ctx.fillStyle = (this.Type === 'AddBall' || this.Type === 'PlusDamage' || this.Type === 'Explosive') ? '#071122' : '#071122';
+    Ctx.font = `${Math.max(12, Math.floor(this.Rect.h*0.42))}px Arial`;
+    Ctx.textAlign = 'center';
+    Ctx.textBaseline = 'middle';
+    let label = '';
+    if(this.Type === 'AddBall') label = '+1';
+    else if(this.Type === 'PlusDamage') label = 'DMG+';
+    else if(this.Type === 'Explosive') label = 'EXP';
+    else label = this.Hp;
+    Ctx.fillText(label, this.Rect.x + this.Rect.w/2, this.Rect.y + this.Rect.h/2);
+  }
+}
+
+class Ball {
+  constructor(x,y,vx,vy){
+    this.X = x; this.Y = y; this.VX = vx; this.VY = vy;
+    this.R = BallRadius;
+    this.Alive = true;
+    this.Returned = false; // whether this ball has been counted as returned yet
+  }
+  Update(){
+    if(!this.Alive) return;
+    this.X += this.VX;
+    this.Y += this.VY;
+
+    // bounce walls
+    if(this.X - this.R < 0){ this.X = this.R; this.VX = -this.VX; }
+    if(this.X + this.R > CanvasW){ this.X = CanvasW - this.R; this.VX = -this.VX; }
+    if(this.Y - this.R < 0){ this.Y = this.R; this.VY = -this.VY; }
+
+    // collide blocks
+    for(const block of Blocks){
+      if(!block.Alive) continue;
+      if(CircleRectCollision(this.X, this.Y, this.R, block.Rect)){
+        // apply player damage
+        block.Hp -= PlayerDamage;
+        Score += 1;
+        // explosion block grants explosion ability when hit/destroyed? We'll grant on destroy below
+        // reflect by penetration axis
+        const overlapLeft = (this.X + this.R) - block.Rect.x;
+        const overlapRight = (block.Rect.x + block.Rect.w) - (this.X - this.R);
+        const overlapTop = (this.Y + this.R) - block.Rect.y;
+        const overlapBottom = (block.Rect.y + block.Rect.h) - (this.Y - this.R);
+        const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+        if(minOverlap === overlapLeft || minOverlap === overlapRight){
+          this.VX = -this.VX;
+        } else {
+          this.VY = -this.VY;
+        }
+
+        // if block destroyed, handle upgrade-type blocks
+        if(block.Hp <= 0){
+          block.Alive = false;
+          Score += 9; // extra points
+          if(block.Type === 'AddBall'){
+            HeldBallCount += 1;
+            FloatingTextAt('+1 Ball', block.Rect.x + block.Rect.w/2, block.Rect.y + block.Rect.h/2, '#7fd7ff');
+          } else if(block.Type === 'PlusDamage'){
+            PlayerDamage += 1;
+            FloatingTextAt('+1 Damage', block.Rect.x + block.Rect.w/2, block.Rect.y + block.Rect.h/2, '#ffd6a6');
+          } else if(block.Type === 'Explosive'){
+            ExplosiveAbility = true;
+            FloatingTextAt('Explosion!', block.Rect.x + block.Rect.w/2, block.Rect.y + block.Rect.h/2, '#ffb0b8');
+          } else {
+            // normal block destroyed — no special
+          }
+          // explosion-on-destroy visual effect (also apply splash if ExplosiveAbility)
+          if(ExplosiveAbility){
+            ExplosionAt(this.X, this.Y, 48, PlayerDamage);
+          }
+        } else {
+          // if block still alive and it itself was an Explosive-type that should grant ability on HIT (optional)
+          // currently upgrades only on destroy (not every hit)
+        }
+
+        break; // one collision per frame
+      }
+    }
+
+    // floor return: when ball reaches bottom area
+    if(this.Y + this.R >= CanvasH - 8){
+      if(!this.Returned){
+        this.Returned = true;
+        this.Alive = false;
+        ActiveBallCount = Math.max(0, ActiveBallCount - 1);
+        HeldBallCount++;
+        // capture first return to move spawn
+        if(!FirstReturnCaptured){
+          FirstReturnCaptured = true;
+          BallSpawnX = clamp(Math.round(this.X), BallRadius + 2, CanvasW - BallRadius - 2);
+        }
+      }
+    }
+
+    // out-of-bounds kill (prevent stuck far away)
+    if(this.X < -OutOfBoundsMargin || this.X > CanvasW + OutOfBoundsMargin || this.Y < -OutOfBoundsMargin || this.Y > CanvasH + OutOfBoundsMargin*2){
+      if(!this.Returned){
+        this.Returned = true;
+        this.Alive = false;
+        ActiveBallCount = Math.max(0, ActiveBallCount - 1);
+        HeldBallCount++;
+        if(!FirstReturnCaptured){
+          FirstReturnCaptured = true;
+          BallSpawnX = clamp(Math.round(this.X), BallRadius + 2, CanvasW - BallRadius - 2);
+        }
+      } else {
+        this.Alive = false;
+        ActiveBallCount = Math.max(0, ActiveBallCount - 1);
+      }
+    }
+  }
+  Draw(){
+    if(!this.Alive) return;
+    Ctx.beginPath();
+    Ctx.fillStyle = '#e6eef8';
+    Ctx.arc(this.X, this.Y, this.R, 0, Math.PI*2);
+    Ctx.fill();
+  }
+}
+
+// helpers
+function RoundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function CircleRectCollision(cx,cy,r,rect){
+  const closestX = clamp(cx, rect.x, rect.x + rect.w);
+  const closestY = clamp(cy, rect.y, rect.y + rect.h);
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+  return (dx*dx + dy*dy) <= r*r;
+}
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+function ExplosionAt(x,y,radius,damage){
+  for(const b of Blocks){
+    if(!b.Alive) continue;
+    const bx = b.Rect.x + b.Rect.w/2;
+    const by = b.Rect.y + b.Rect.h/2;
+    const d = Math.hypot(bx - x, by - y);
+    if(d <= radius + Math.max(b.Rect.w,b.Rect.h)/2){
+      b.Hp -= damage;
+      if(b.Hp <= 0) b.Alive = false;
+    }
+  }
+}
+
+// floating hit/upgraded text
+let FloatingTexts = [];
+function FloatingTextAt(text,x,y,color){
+  FloatingTexts.push({ text, x, y, color, life: 1.2 });
+}
+
+// spawn logic: rows with occasional upgrade blocks
+function SpawnInitialRows(){
+  Blocks = [];
+  for(let r=0;r<2;r++) SpawnRowAt(r);
+}
+function SpawnRowAt(RowIndex){
+  for(let c=0;c<MaxColumns;c++){
+    if(Math.random() < 0.62){
+      // choose type with small chance
+      let Type = 'Normal';
+      const tRoll = Math.random();
+      if(tRoll < 0.06) Type = 'AddBall';
+      else if(tRoll < 0.11) Type = 'PlusDamage';
+      else if(tRoll < 0.14) Type = 'Explosive';
+      const hp = Type === 'Normal' ? (Level + RandInt(0,Level)) : (Type === 'AddBall' ? 1 : (Type === 'PlusDamage' ? 1 : 2));
+      Blocks.push(new Block(RowIndex, c, hp, Type));
+    }
+  }
+}
+
+// Add a new row at top and shift others down
+function AddNewRowAfterRound(){
+  for(const b of Blocks){ b.Row += 1; b.UpdateRect(); }
+  SpawnRowAt(0);
+  // update rects
+  for(const b of Blocks) b.UpdateRect();
+}
+
+// Input
+function GetPointerPos(evt){
+  const rect = Canvas.getBoundingClientRect();
+  const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+  const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+Canvas.addEventListener('mousedown', (e)=>{ OnPointerDown(e); });
+window.addEventListener('mousemove', (e)=>{ OnPointerMove(e); });
+window.addEventListener('mouseup', (e)=>{ OnPointerUp(e); });
+Canvas.addEventListener('touchstart', (e)=>{ OnPointerDown(e); }, {passive:true});
+window.addEventListener('touchmove', (e)=>{ OnPointerMove(e); }, {passive:true});
+window.addEventListener('touchend', (e)=>{ OnPointerUp(e); });
+
+function OnPointerDown(evt){
+  if(IsShooting) return;
+  IsAiming = true;
+  AimStart = { x: BallSpawnX, y: CanvasH - 12 - BallRadius };
+  AimEnd = GetPointerPos(evt);
+}
+function OnPointerMove(evt){
+  if(!IsAiming) return;
+  AimEnd = GetPointerPos(evt);
+}
+function OnPointerUp(evt){
+  if(!IsAiming) return;
+  IsAiming = false;
+  if(!AimEnd || !AimStart) return;
+  const dx = AimEnd.x - AimStart.x;
+  const dy = AimEnd.y - AimStart.y;
+  if(Math.hypot(dx,dy) < 6) return;
+  // direction is from spawn toward pointer (note typical Ballz pulls opposite; here release aims toward AimEnd)
+  const len = Math.hypot(dx,dy) || 1;
+  LaunchDirection.x = dx / len;
+  LaunchDirection.y = dy / len;
+  if(LaunchDirection.y > -0.25) LaunchDirection.y = -0.25;
+  StartRound();
+}
+
+// shooting flow
+function StartRound(){
+  if(IsShooting) return;
+  IsShooting = true;
+  RemainingToLaunch = HeldBallCount;
+  HeldBallCount = 0;
+  NextLaunchTimer = 0;
+  ActiveBallCount = 0;
+  FirstReturnCaptured = false;
+}
+
+function LaunchOneBall(){
+  const dirX = LaunchDirection.x, dirY = LaunchDirection.y;
+  const mag = Math.hypot(dirX,dirY) || 1;
+  const vx = (dirX / mag) * LaunchSpeed;
+  const vy = (dirY / mag) * LaunchSpeed;
+  const ball = new Ball(BallSpawnX, CanvasH - 12 - BallRadius, vx, vy);
+  Balls.push(ball);
+  ActiveBallCount++;
+  RemainingToLaunch = Math.max(0, RemainingToLaunch - 1);
+}
+
+// End of round check
+function EndRoundIfComplete(){
+  if(IsShooting && RemainingToLaunch === 0 && ActiveBallCount === 0){
+    IsShooting = false;
+    // advance level, add new row
+    Level += 1;
+    AddNewRowAfterRound();
+    // check game over
+    if(Blocks.some(b => b.Alive && (b.Rect.y + b.Rect.h >= CanvasH - 48))){
+      GameOver();
+      return;
+    }
+    UpdateUI();
+  }
+}
+
+// Game over
+function GameOver(){
+  setTimeout(()=>{ alert(`Game Over — Level ${Level} — Score ${Score}`); ResetGame(); }, 50);
+}
+
+// Reset
+function ResetGame(){
+  Blocks = [];
+  Balls = [];
+  HeldBallCount = 1;
+  PlayerDamage = 1;
+  ExplosiveAbility = false;
+  Score = 0;
+  Level = 1;
+  BallSpawnX = Math.round(CanvasW/2);
+  IsShooting = false;
+  SpawnInitialRows();
+  UpdateUI();
+}
+
+RestartBtn.addEventListener('click', ResetGame);
+
+// Floating text update/draw
+function UpdateFloatingTexts(dt){
+  for(const t of FloatingTexts){
+    t.life -= dt;
+    t.y -= dt * 18;
+  }
+  FloatingTexts = FloatingTexts.filter(t => t.life > 0);
+}
+
+// Main loop
+let LastTime = performance.now();
+function Loop(now){
+  const dt = Math.min(0.033, (now - LastTime)/1000);
+  LastTime = now;
+  Update(dt);
+  Draw();
+  requestAnimationFrame(Loop);
+}
+
+function Update(dt){
+  // launch spacing
+  if(IsShooting && RemainingToLaunch > 0){
+    NextLaunchTimer -= dt;
+    if(NextLaunchTimer <= 0){
+      LaunchOneBall();
+      NextLaunchTimer = 0.06;
+    }
+  }
+
+  // update balls
+  for(const b of Balls) b.Update();
+
+  // cleanup
+  Balls = Balls.filter(b => b.Alive);
+
+  // update floating texts
+  UpdateFloatingTexts(dt);
+
+  // update score UI
+  ScoreEl.textContent = Score;
+
+  EndRoundIfComplete();
+}
+
+function Draw(){
+  // background
+  Ctx.fillStyle = '#071428';
+  Ctx.fillRect(0,0,CanvasW,CanvasH);
+
+  // draw blocks
+  for(const b of Blocks) if(b.Alive) b.Draw();
+
+  // spawn base
+  Ctx.fillStyle = '#0b2a42';
+  RoundRect(Ctx, BallSpawnX - 20, CanvasH - 28, 40, 20, 6);
+  Ctx.fill();
+
+  // draw balls
+  for(const ball of Balls) ball.Draw();
+
+  // draw aim
+  if(IsAiming && AimStart && AimEnd && !IsShooting){
+    Ctx.beginPath();
+    Ctx.setLineDash([6,6]);
+    Ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    Ctx.lineWidth = 2;
+    Ctx.moveTo(AimStart.x, AimStart.y);
+    const dx = AimEnd.x - AimStart.x, dy = AimEnd.y - AimStart.y;
+    const len = Math.hypot(dx,dy) || 1;
+    const maxLen = 420;
+    const s = Math.min(1, maxLen/len);
+    Ctx.lineTo(AimStart.x + dx*s, AimStart.y + dy*s);
+    Ctx.stroke();
+    Ctx.setLineDash([]);
+  }
+
+  // draw floating texts
+  for(const t of FloatingTexts){
+    Ctx.fillStyle = t.color || '#fff';
+    Ctx.font = '14px Arial';
+    Ctx.textAlign = 'center';
+    Ctx.fillText(t.text, t.x, t.y);
+  }
+
+  // HUD overlays
+  Ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  Ctx.font = '12px Arial';
+  Ctx.textAlign = 'left';
+  Ctx.fillText('Destroy special blocks to get upgrades', 8, 14);
+  if(ExplosiveAbility){
+    Ctx.fillStyle = '#ffd9b3';
+    Ctx.textAlign = 'right';
+    Ctx.fillText('Explosion: ON', CanvasW - 8, 14);
+  }
+
+  // update UI elements
+  BallCountEl.textContent = HeldBallCount;
+  LevelEl.textContent = Level;
+  DamageEl.textContent = PlayerDamage;
+}
+
+SpawnInitialRows();
+UpdateUI();
+requestAnimationFrame(Loop);
+
+function UpdateUI(){
+  ScoreEl.textContent = Score;
+  LevelEl.textContent = Level;
+  BallCountEl.textContent = HeldBallCount;
+  DamageEl.textContent = PlayerDamage;
+}
+</script>
+</body>
+</html>
