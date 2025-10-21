@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Side Jump — Charge Jump</title>
+<style>
+  :root{
+    --bg:#0f1724;
+    --panel:#071126;
+    --accent:#6ee7b7;
+    --muted:#94a3b8;
+    --danger:#ff6b6b;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Arial;}
+  body{
+    background:linear-gradient(180deg,#071026 0%, #0f1724 100%);
+    display:flex;align-items:center;justify-content:center;
+    color:var(--muted);
+  }
+  .wrap{
+    width:min(820px,96vw);
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:14px;padding:18px;box-shadow:0 6px 30px rgba(2,6,23,0.6);
+  }
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  h1{font-size:18px;color:var(--accent);margin:0}
+  .controls{font-size:13px;color:var(--muted)}
+  .canvasWrap{position:relative;background:var(--panel);border-radius:10px;overflow:hidden}
+  canvas{display:block;width:100%;height:500px;background:linear-gradient(180deg,#07202b,#03121a)}
+  .hud{
+    position:absolute;left:12px;top:12px;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,0.25);
+    color:var(--accent);font-weight:700;
+  }
+  .msg{
+    position:absolute;right:12px;top:12px;padding:8px 12px;border-radius:8px;background:rgba(0,0,0,0.25);
+    color:var(--muted);
+  }
+  .charge{
+    position:absolute;left:12px;bottom:12px;width:180px;
+    background:rgba(0,0,0,0.28);padding:6px;border-radius:8px;color:var(--muted);font-weight:700;
+  }
+  .chargeBar{
+    height:8px;border-radius:6px;background:rgba(255,255,255,0.08);overflow:hidden;margin-top:6px;
+  }
+  .chargeFill{height:100%;width:0%;background:linear-gradient(90deg,#6ee7b7,#2dd4bf);}
+  .overlay{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.75));
+    color:white;backdrop-filter: blur(4px);
+  }
+  .btn{
+    margin-top:12px;padding:8px 14px;border-radius:10px;border:none;background:var(--accent);color:#042024;
+    font-weight:700;cursor:pointer;
+  }
+  footer{margin-top:8px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between}
+  @media (max-width:520px){
+    canvas{height:420px}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Side Jump — Charge Jump</h1>
+      <div class="controls">Hold left/right (or ← → / A D) to charge — longer hold → more overshoot</div>
+    </header>
+
+    <div class="canvasWrap">
+      <canvas id="game"></canvas>
+      <div class="hud" id="Score">Score: 0</div>
+      <div class="msg" id="Tip">Tap or hold a side</div>
+
+      <div class="charge" id="ChargeUI" style="display:flex;flex-direction:column;">
+        <div id="ChargeLabel">Charge: 0%</div>
+        <div class="chargeBar"><div id="ChargeFill" class="chargeFill"></div></div>
+      </div>
+
+      <div id="Overlay" class="overlay" style="display:none">
+        <div id="OverlayText" style="text-align:center;">
+          <h2 id="OverlayTitle" style="margin:0 0 8px 0">Game Over</h2>
+          <div id="OverlayScore" style="font-size:18px;margin-bottom:8px">Score: 0</div>
+          <button id="RestartBtn" class="btn">Restart</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div>Simple jump-to-side game · PascalCase variables</div>
+      <div style="opacity:0.8">Hold to tune jump — overshoot / undershoot</div>
+    </footer>
+  </div>
+
+<script>
+/* ======= Setup ======= */
+const Canvas = document.getElementById('game');
+const Ctx = Canvas.getContext('2d');
+const ScoreEl = document.getElementById('Score');
+const TipEl = document.getElementById('Tip');
+const ChargeUI = document.getElementById('ChargeUI');
+const ChargeLabel = document.getElementById('ChargeLabel');
+const ChargeFill = document.getElementById('ChargeFill');
+const Overlay = document.getElementById('Overlay');
+const OverlayTitle = document.getElementById('OverlayTitle');
+const OverlayScore = document.getElementById('OverlayScore');
+const RestartBtn = document.getElementById('RestartBtn');
+
+function ResizeCanvas(){
+  Canvas.width = Math.floor(Canvas.clientWidth * devicePixelRatio);
+  Canvas.height = Math.floor(Canvas.clientHeight * devicePixelRatio);
+  Ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+}
+window.addEventListener('resize', ResizeCanvas);
+ResizeCanvas();
+
+/* ======= Game constants & state (PascalCase) ======= */
+let Gravity = 0.9;
+let JumpStrength = -14;
+let Score = 0;
+let IsRunning = true;
+
+/* Platforms */
+let PlatformY = 370;
+let PlatformWidth = 140;
+let PlatformHeight = 18;
+let LeftX = 120;
+let RightX = 520;
+
+/* Player */
+const PlayerWidth = 28;
+const PlayerHeight = 40;
+let PlayerX, PlayerY;
+let VelocityX = 0;
+let VelocityY = 0;
+let OnGround = true;
+let CurrentSide = 'left';
+let IntendedSide = null;
+
+/* Charge state */
+let IsCharging = false;
+let ChargeStart = 0;
+let ChargeSide = null;
+const MaxChargeMs = 1200;       // hold time (ms) for full charge
+const MinMultiplier = 0.6;      // at 0% charge horizontal multiplier
+const MaxMultiplier = 1.6;      // at 100% charge horizontal multiplier
+
+/* Layout */
+function LayoutPlatforms(){
+  const W = Canvas.clientWidth;
+  LeftX = Math.max(65, Math.floor(W * 0.18));
+  RightX = Math.min(W - 65, Math.floor(W * 0.82));
+  PlatformWidth = Math.min(180, Math.floor(W * 0.2));
+}
+LayoutPlatforms();
+
+function ResetPlayerPlace(){
+  PlayerX = LeftX;
+  PlayerY = PlatformY - PlayerHeight;
+  VelocityX = 0;
+  VelocityY = 0;
+  OnGround = true;
+  CurrentSide = 'left';
+  IntendedSide = null;
+  IsCharging = false;
+  UpdateChargeUI(0);
+}
+ResetPlayerPlace();
+
+/* ======= Input handling (press-and-hold) ======= */
+/* pointerdown -> start charge; pointerup/cancel -> release jump */
+Canvas.addEventListener('pointerdown', (e) => {
+  if(!IsRunning) return;
+  const rect = Canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const Side = (x < rect.width / 2) ? 'left' : 'right';
+  StartCharge(Side);
+});
+
+Canvas.addEventListener('pointerup', (e) => {
+  if(!IsRunning) return;
+  ReleaseCharge();
+});
+Canvas.addEventListener('pointercancel', () => { ReleaseCharge(); });
+
+/* keyboard: keydown starts charge, keyup releases */
+const KeysDown = {};
+window.addEventListener('keydown', (e) => {
+  if(!IsRunning && (e.key === 'r' || e.key === 'R')) { RestartGame(); return; }
+  if(e.repeat) return; // avoid auto-repeat spam
+  if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { KeysDown.left = true; StartCharge('left'); }
+  if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { KeysDown.right = true; StartCharge('right'); }
+});
+window.addEventListener('keyup', (e) => {
+  if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { KeysDown.left = false; ReleaseCharge('left'); }
+  if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { KeysDown.right = false; ReleaseCharge('right'); }
+});
+RestartBtn.addEventListener('click', RestartGame);
+
+/* StartCharge: prepare charging if on ground */
+function StartCharge(Side){
+  if(!OnGround) return;
+  // if already charging other side, ignore
+  if(IsCharging && ChargeSide === Side) return;
+  IsCharging = true;
+  ChargeSide = Side;
+  ChargeStart = performance.now();
+  ChargeUI.style.display = 'flex';
+  TipEl.textContent = `Charging ${Side}...`;
+}
+
+/* ReleaseCharge: compute charge and perform jump */
+function ReleaseCharge(forcedSide=null){
+  if(!IsCharging) return;
+  const Now = performance.now();
+  const Elapsed = Math.min(MaxChargeMs, Now - ChargeStart);
+  const ChargeNorm = Math.max(0, Math.min(1, Elapsed / MaxChargeMs)); // 0..1
+  UpdateChargeUI(0); // reset immediately
+
+  // perform jump toward ChargeSide
+  PerformChargedJump(ChargeSide, ChargeNorm);
+
+  IsCharging = false;
+  ChargeSide = null;
+  ChargeStart = 0;
+  // hide charge UI after small delay so user sees reset
+  setTimeout(()=>{ if(!IsCharging) ChargeUI.style.display = 'none'; }, 180);
+}
+
+/* UpdateChargeUI: show percent and fill */
+function UpdateChargeUI(norm){
+  const pct = Math.round(norm * 100);
+  ChargeLabel.textContent = `Charge: ${pct}%`;
+  ChargeFill.style.width = `${pct}%`;
+}
+
+/* Regularly update charge UI while holding */
+function UpdateChargeDuringHold(){
+  if(IsCharging && ChargeStart){
+    const Now = performance.now();
+    const Elapsed = Math.min(MaxChargeMs, Now - ChargeStart);
+    const ChargeNorm = Math.max(0, Math.min(1, Elapsed / MaxChargeMs));
+    UpdateChargeUI(ChargeNorm);
+    TipEl.textContent = `Charging ${ChargeSide} — ${Math.round(ChargeNorm*100)}%`;
+  }
+  requestAnimationFrame(UpdateChargeDuringHold);
+}
+requestAnimationFrame(UpdateChargeDuringHold);
+
+/* ======= Jump execution: uses charge to scale horizontal multiplier ======= */
+function PerformChargedJump(TargetSide, ChargeNorm){
+  if(!OnGround) return;
+  const TargetCenterX = (TargetSide === 'left') ? LeftX : RightX;
+  const Dx = TargetCenterX - PlayerX;
+
+  // time in frames approximate for vertical flight (symmetric)
+  const JumpTimeFrames = Math.max(10, Math.abs(Math.floor((-2 * JumpStrength) / Gravity)));
+
+  // base horizontal velocity to reach target in JumpTimeFrames
+  let BaseVelX = Dx / JumpTimeFrames;
+
+  // apply multiplier based on charge (maps 0..1 -> MinMultiplier..MaxMultiplier)
+  const Multiplier = MinMultiplier + (MaxMultiplier - MinMultiplier) * ChargeNorm;
+  let FinalVelX = BaseVelX * Multiplier;
+
+  // clamp big values
+  const MaxHoriz = 64;
+  FinalVelX = Math.max(-MaxHoriz, Math.min(MaxHoriz, FinalVelX));
+
+  // start jump
+  VelocityY = JumpStrength;
+  VelocityX = FinalVelX;
+  OnGround = false;
+  IntendedSide = TargetSide;
+  TipEl.textContent = `Jump launched (${Math.round(ChargeNorm*100)}%)`;
+}
+
+/* ======= Main loop ======= */
+let LastTime = 0;
+function Loop(ts){
+  if(!LastTime) LastTime = ts;
+  const Delta = Math.min(32, ts - LastTime);
+  LastTime = ts;
+
+  Update(Delta / 16.6667);
+  Render();
+
+  if(IsRunning) requestAnimationFrame(Loop);
+}
+requestAnimationFrame(Loop);
+
+/* ======= Update physics & collisions ======= */
+function Update(dt){
+  // update charge UI if holding (handled separately via rAF)
+  if(!OnGround){
+    VelocityY += Gravity * dt;
+    PlayerY += VelocityY * dt;
+    PlayerX += VelocityX * dt;
+  }
+
+  // landing detection
+  const Platforms = [
+    {x:LeftX, w:PlatformWidth, side:'left'},
+    {x:RightX, w:PlatformWidth, side:'right'}
+  ];
+
+  for(const P of Platforms){
+    const CenterX = P.x;
+    const HalfW = P.w / 2;
+    const FootY = PlayerY + PlayerHeight;
+
+    if(VelocityY >= 0 && FootY >= PlatformY && FootY <= PlatformY + 20){
+      if(PlayerX >= CenterX - HalfW - 6 && PlayerX <= CenterX + HalfW + 6){
+        // land
+        PlayerY = PlatformY - PlayerHeight;
+        VelocityY = 0;
+        VelocityX = 0;
+        OnGround = true;
+
+        const LandedSide = P.side;
+        if(IntendedSide && LandedSide === IntendedSide){
+          Score += 1;
+          if(Score % 4 === 0){
+            JumpStrength = Math.max(-18, JumpStrength - 0.6);
+            Gravity = Math.min(1.4, Gravity + 0.04);
+          }
+          ScoreEl.textContent = `Score: ${Score}`;
+        }
+        CurrentSide = LandedSide;
+        IntendedSide = null;
+        TipEl.textContent = 'Tap or hold a side';
+      }
+    }
+  }
+
+  // miss -> game over
+  if(PlayerY > Canvas.clientHeight + 60){
+    GameOver();
+  }
+
+  // soft bounds
+  const MinX = -80, MaxX = Canvas.clientWidth + 80;
+  PlayerX = Math.max(MinX, Math.min(MaxX, PlayerX));
+}
+
+/* ======= Render ======= */
+function Render(){
+  const W = Canvas.clientWidth;
+  const H = Canvas.clientHeight;
+  Ctx.clearRect(0,0,W,H);
+
+  // shadow
+  Ctx.save();
+  Ctx.globalAlpha = 0.12;
+  Ctx.fillStyle = '#000';
+  Ctx.fillRect(0, PlatformY + PlatformHeight, W, H - PlatformY - PlatformHeight);
+  Ctx.restore();
+
+  DrawPlatform(LeftX, PlatformY, PlatformWidth, PlatformHeight);
+  DrawPlatform(RightX, PlatformY, PlatformWidth, PlatformHeight);
+  DrawPlayer(PlayerX - PlayerWidth/2, PlayerY, PlayerWidth, PlayerHeight);
+
+  // center guide
+  Ctx.save();
+  Ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  Ctx.setLineDash([6,10]);Ctx.lineWidth = 1;
+  Ctx.beginPath();Ctx.moveTo(W/2, 0);Ctx.lineTo(W/2, H);Ctx.stroke();
+  Ctx.restore();
+}
+
+function DrawPlatform(CenterX, Y, Wplat, Hplat){
+  const X = CenterX - Wplat/2;
+  const grd = Ctx.createLinearGradient(X, Y, X, Y + Hplat);
+  grd.addColorStop(0, '#0ea5a0'); grd.addColorStop(1, '#065f5b');
+  Ctx.fillStyle = grd;
+  RoundRect(Ctx, X, Y, Wplat, Hplat, 6, true, false);
+  Ctx.save();
+  Ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  RoundRect(Ctx, X+6, Y+2, Wplat-12, 6, 4, true, false);
+  Ctx.restore();
+}
+
+function DrawPlayer(X, Y, Wp, Hp){
+  Ctx.save();
+  Ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  Ctx.beginPath();
+  Ctx.ellipse(X + Wp/2, Y + Hp + 8, Wp*0.7, 8, 0, 0, Math.PI*2);
+  Ctx.fill();
+  Ctx.restore();
+
+  Ctx.save();
+  Ctx.fillStyle = '#7ef2c9';
+  RoundRect(Ctx, X, Y, Wp, Hp, 6, true, false);
+  Ctx.fillStyle = '#032024';
+  Ctx.fillRect(X + 6, Y + 10, 5, 6);
+  Ctx.fillRect(X + Wp - 11, Y + 10, 5, 6);
+  Ctx.restore();
+}
+
+function RoundRect(ctx, x, y, w, h, r, fill, stroke){
+  if(typeof r === 'number') r = {tl:r,tr:r,br:r,bl:r};
+  ctx.beginPath();
+  ctx.moveTo(x + r.tl, y);
+  ctx.lineTo(x + w - r.tr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r.tr);
+  ctx.lineTo(x + w, y + h - r.br);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
+  ctx.lineTo(x + r.bl, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r.bl);
+  ctx.lineTo(x, y + r.tl);
+  ctx.quadraticCurveTo(x, y, x + r.tl, y);
+  ctx.closePath();
+  if(fill) ctx.fill();
+  if(stroke) ctx.stroke();
+}
+
+/* ======= Game Over / Restart ======= */
+function GameOver(){
+  IsRunning = false;
+  Overlay.style.display = 'flex';
+  OverlayTitle.textContent = 'Game Over';
+  OverlayScore.textContent = `Score: ${Score}`;
+  TipEl.textContent = 'Press Restart or R';
+}
+
+function RestartGame(){
+  Score = 0;
+  JumpStrength = -14;
+  Gravity = 0.9;
+  ScoreEl.textContent = `Score: ${Score}`;
+  Overlay.style.display = 'none';
+  ResetPlayerPlace();
+  LastTime = 0;
+  IsRunning = true;
+  requestAnimationFrame(Loop);
+}
+
+/* Keep layout consistent */
+window.addEventListener('resize', () => {
+  ResizeCanvas();
+  LayoutPlatforms();
+  if(OnGround){
+    PlayerX = (CurrentSide === 'left') ? LeftX : RightX;
+    PlayerY = PlatformY - PlayerHeight;
+  }
+});
+
+/* small instructions fade */
+setTimeout(()=>{ TipEl.style.opacity = 0.85; }, 300);
+</script>
+</body>
+</html>
