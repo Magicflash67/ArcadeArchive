@@ -12,7 +12,9 @@
     :root{--cell-size:calc(min(7vw,32px));--cols:10;--rows:20}
     html,body{height:100%;margin:0;font-family:Roboto,system-ui,Segoe UI,Helvetica,Arial;background:#06101a;color:#cfe8ff}
     .App{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px}
-    .GameWrap{display:flex;gap:12px;align-items:flex-start}
+    /* Scale wrapper keeps board+sidebar together and allows transform scaling */
+    .ScaleWrap{width:100%;display:flex;justify-content:center;overflow:hidden}
+    .GameWrap{display:flex;gap:12px;align-items:flex-start;transform-origin:top left}
     canvas{background:#07121a;border-radius:8px;box-shadow:0 6px 18px rgba(2,6,23,.6)}
     .Sidebar{display:flex;flex-direction:column;gap:8px}
     .InfoBox{background:#0f1724;color:#cfe8ff;padding:8px;border-radius:8px;min-width:120px;text-align:center}
@@ -31,22 +33,26 @@
 <body>
   <div class="App">
     <h2>Mobile Tetmis — Clean Rebuild</h2>
-    <div class="GameWrap">
-      <canvas id="GameCanvas" aria-label="Tetris board"></canvas>
-      <div class="Sidebar">
-        <div class="InfoBox">Score: <span id="Score">0</span></div>
-        <div class="InfoBox">Level: <span id="Level">1</span></div>
-        <div class="InfoBox">Lines: <span id="Lines">0</span></div>
-        <div class="InfoBox">Next</div>
-        <canvas id="NextCanvas" width="120" height="120" style="backgrouScd:#07101a;border-radius:6px"></canvas>
-        <div class="Controls">
-          <button id="StartBtn" class="Btn">Start</button>
-          <button id="PauseBtn" class="Btn">Pause</button>
+
+    <!-- ScaleWrap contains the whole play area so it scales together -->
+    <div class="ScaleWrap">
+      <div class="GameWrap">
+        <canvas id="GameCanvas" aria-label="Tetris board"></canvas>
+        <div class="Sidebar">
+          <div class="InfoBox">Score: <span id="Score">0</span></div>
+          <div class="InfoBox">Level: <span id="Level">1</span></div>
+          <div class="InfoBox">Lines: <span id="Lines">0</span></div>
+          <div class="InfoBox">Next</div>
+          <canvas id="NextCanvas" width="120" height="120" style="background:#07101a;border-radius:6px"></canvas>
+          <div class="Controls">
+            <button id="StartBtn" class="Btn">Start</button>
+            <button id="PauseBtn" class="Btn">Pause</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Mobile touch controls -->
+    <!-- Mobile touch controls (kept outside the scaled area so they remain tappable) -->
     <div style="width:100%;max-width:520px;margin-top:8px">
       <div class="TouchRow" style="justify-content:space-between;align-items:center">
         <div style="display:flex;gap:8px;flex:1">
@@ -78,15 +84,22 @@
     const LinesEl = document.getElementById('Lines');
 
     function InitCanvasSize(){
+      // Set an initial canvas size based on CSS var; ResizeGame will overwrite on load/resize
       const cs = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size')) || 28;
       Config.CellSize = cs;
       Canvas.width = Config.Cols * cs;
       Canvas.height = Config.Rows * cs;
       Canvas.style.width = (Config.Cols*cs)+'px';
       Canvas.style.height = (Config.Rows*cs)+'px';
+
+      const nextSize = cs * 4;
+      NextCanvas.width = nextSize;
+      NextCanvas.height = nextSize;
+      NextCanvas.style.width = nextSize + 'px';
+      NextCanvas.style.height = nextSize + 'px';
     }
     InitCanvasSize();
-    window.addEventListener('resize', InitCanvasSize);
+    window.addEventListener('resize', () => { ResizeGame(); });
 
     // Pieces
     const Shapes = {
@@ -167,6 +180,8 @@
       }
       if(cleared>0){
         Lines += cleared;
+        // play clear sound hook (if you add audio integration)
+        // PlayClearSound();
         Score += (cleared===1?100:cleared===2?300:cleared===3?500:800) * Level;
         Level = Math.floor(Lines/10)+1;
         DropSpeed = Math.max(100,700 - (Level-1)*60);
@@ -203,6 +218,7 @@
       CurrentPiece = null; NextPiece = null;
       Score = 0; Level = 1; Lines = 0; DropSpeed = 700; IsRunning = true;
       UpdateHUD();
+      // PlayLossSound(); // if using audio integration
       StartGame();
     }
 
@@ -479,49 +495,76 @@
     // Initialize — draw initial empty board and preview
     Draw();
 
+    // --- Resize & scale logic: scale the whole GameWrap so board+sidebar never get cut off ---
+    function ResizeGame(){
+      const ScaleWrap = document.querySelector('.ScaleWrap');
+      const GameWrap = document.querySelector('.GameWrap');
+      const Sidebar = document.querySelector('.Sidebar');
+
+      // Temporarily reset transform to measure natural sizes correctly
+      GameWrap.style.transform = 'scale(1)';
+
+      // Available viewport
+      const vw = window.innerWidth - 24; // account for App padding
+      const vh = window.innerHeight - 110; // leave space for header/footer and controls
+
+      // We'll compute a cell size that fits both width (board + sidebar) and height (board)
+      // Use the CSS var as baseline
+      const cssBase = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size')) || 28;
+
+      // Measure sidebar width (unscaled)
+      const sidebarWidth = Sidebar.offsetWidth || 160;
+      const gap = 12; // .GameWrap gap
+
+      // Candidate cell sizes
+      const cellFromWidth = Math.floor((vw - sidebarWidth - gap) / Config.Cols);
+      const cellFromHeight = Math.floor(vh / Config.Rows);
+
+      // Choose cell size that fits, clamp to reasonable min/max
+      let cellSize = Math.min(cellFromWidth || cssBase, cellFromHeight || cssBase, 32);
+      cellSize = Math.max(12, cellSize); // allow down to 12px for tiny devices
+      Config.CellSize = cellSize;
+
+      // Apply canvas pixel sizes
+      Canvas.width = Config.Cols * cellSize;
+      Canvas.height = Config.Rows * cellSize;
+      Canvas.style.width = Canvas.width + 'px';
+      Canvas.style.height = Canvas.height + 'px';
+
+      // Scale NextCanvas proportionally
+      const nextSize = cellSize * 4;
+      NextCanvas.width = nextSize;
+      NextCanvas.height = nextSize;
+      NextCanvas.style.width = nextSize + 'px';
+      NextCanvas.style.height = nextSize + 'px';
+
+      // Now compute natural (unscaled) size of game area
+      const naturalWidth = Canvas.width + gap + Sidebar.offsetWidth;
+      const naturalHeight = Canvas.height;
+
+      // Compute scale to fit viewport
+      const scaleX = vw / naturalWidth;
+      const scaleY = vh / naturalHeight;
+      const scale = Math.min(scaleX, scaleY, 1); // don't scale above 1
+
+      // Apply transform scale on GameWrap and center it
+      GameWrap.style.transform = `scale(${scale})`;
+      // Center horizontally inside ScaleWrap
+      const leftover = Math.max(0, vw - naturalWidth * scale);
+      GameWrap.style.marginLeft = (leftover / 2) + 'px';
+      // Ensure ScaleWrap height can contain the scaled board
+      ScaleWrap.style.height = Math.ceil(naturalHeight * scale) + 'px';
+
+      // Redraw with the new sizes
+      Draw();
+    }
+
+    // Ensure initial sizing and setup listeners
+    window.addEventListener('resize', ResizeGame);
+    // call twice to ensure accurate measurements after fonts load
+    ResizeGame();
+    setTimeout(ResizeGame, 120);
+
   </script>
-  <script>
-function ResizeGame(){
-  const GameWrap = document.querySelector('.GameWrap');
-  const Sidebar = document.querySelector('.Sidebar');
-
-  // Full viewport minus padding
-  const maxWidth = window.innerWidth - 24; // body padding
-  const maxHeight = window.innerHeight - 100; // account for header/footer
-
-  const cols = Config.Cols;
-  const rows = Config.Rows;
-
-  // Compute max cell size that fits screen
-  let cellSize = Math.floor(Math.min(
-    maxWidth / (cols + 3), // +3 for sidebar buffer
-    maxHeight / rows
-  ));
-
-  // Minimum and maximum limits
-  cellSize = Math.max(16, Math.min(cellSize, 32));
-  Config.CellSize = cellSize;
-
-  // Set canvas dimensions
-  Canvas.width = cols * cellSize;
-  Canvas.height = rows * cellSize;
-  Canvas.style.width = Canvas.width + 'px';
-  Canvas.style.height = Canvas.height + 'px';
-
-  // Scale NextCanvas proportionally
-  const nextSize = cellSize * 4;
-  NextCanvas.width = nextSize;
-  NextCanvas.height = nextSize;
-  NextCanvas.style.width = nextSize + 'px';
-  NextCanvas.style.height = nextSize + 'px';
-
-  Draw();
-}
-
-// Call on load and resize
-window.addEventListener('resize', ResizeGame);
-ResizeGame();
-</script>
-
 </body>
 </html>
