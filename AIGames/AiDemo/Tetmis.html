@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    :root{--cell-size:calc(min(9vw,40px));--cols:10;--rows:20}
+    :root{--cell-size:calc(min(7vw,32px));--cols:10;--rows:20}
     html,body{height:100%;margin:0;font-family:Roboto,system-ui,Segoe UI,Helvetica,Arial;background:#06101a;color:#cfe8ff}
     .App{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px}
     .GameWrap{display:flex;gap:12px;align-items:flex-start}
@@ -25,6 +25,7 @@
     .Footer{font-size:12px;color:#9fb7d9;margin-top:8px}
     button:focus{outline:3px solid rgba(255,255,255,0.08)}
     @media(min-width:720px){:root{--cell-size:28px}}
+    @media(max-width:480px){:root{--cell-size:calc(min(6vw,22px));}}
   </style>
 </head>
 <body>
@@ -37,7 +38,7 @@
         <div class="InfoBox">Level: <span id="Level">1</span></div>
         <div class="InfoBox">Lines: <span id="Lines">0</span></div>
         <div class="InfoBox">Next</div>
-        <canvas id="NextCanvas" width="120" height="120" style="background:#07101a;border-radius:6px"></canvas>
+        <canvas id="NextCanvas" width="120" height="120" style="backgrouScd:#07101a;border-radius:6px"></canvas>
         <div class="Controls">
           <button id="StartBtn" class="Btn">Start</button>
           <button id="PauseBtn" class="Btn">Pause</button>
