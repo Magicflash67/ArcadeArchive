@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>  
+<head>
+<title>Flash Archive - FlipLine</title>
+  <link rel="icon" type="image/x-icon" href="../Images/MainPageLogo/ControllerMagic.png">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Montserrat">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<style>
+body, h1,h2,h3,h4,h5,h6 {font-family: "Montserrat", sans-serif;}
+.w3-row-padding img {margin-bottom: 12px;}
+.w3-sidebar {width: 120px; background: #222;}
+#main {margin-left: 140px;}
+@media only screen and (max-width: 600px) {#main {margin-left: 0;}}
+body {
+  background-image: url('../Images/MainPageLogo/magicGamesBackground.jpg');
+}
+.table-container {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 20px 0;
+}
+.table-wrapper {
+  background-color: black;
+  border: 10px solid rgb(179, 0, 255);
+  padding: 20px;
+  flex: 1;
+  text-align: center;
+}
+.table-wrapper h2 {
+  color: #ff66ff;
+  margin-bottom: 10px;
+}
+.table-wrapper table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table-wrapper td {
+  padding: 5px;
+  text-align: center;
+}
+.table-wrapper img {
+  width: 100px;
+  height: 100px;
+  border: 2px solid #fff;
+  transition: transform 0.2s;
+}
+.table-wrapper img:hover {
+  transform: scale(1.1);
+}
+</style>
+</head>
+<body class="w3-black">
+
+<!-- Sidebar -->
+<nav class="w3-sidebar w3-bar-block w3-small w3-hide-small w3-center">
+  <img src="../Images/MainPageLogo/ControllerMagic.png" alt="logo" style="width:100%">
+  <a href="../index.html" class="w3-bar-item w3-button w3-padding-large w3-hover-purple">
+    <i class="fa fa-home w3-xxlarge"></i><p>HOME</p>
+  </a>
+  <a href="New.html" class="w3-bar-item w3-button w3-padding-large w3-hover-purple">
+    <img src="../Images/MainPageLogo/NewNewsTrue.png" alt="news" style="width:50px;"><p>NEWS</p>
+  </a>
+  <a href="#" class="w3-bar-item w3-button w3-padding-large w3-hover-purple">
+    <img src="../Images/MainPageLogo/NEWGameDrop.png" alt="New games logo" style="width:50px;"><p>NEW GAMES</p>
+  </a>
+  <a href="./SubMenu&Catagorys/StrategyGames.html" class="w3-bar-item w3-button w3-padding-large w3-hover-purple">
+    <img src="../Images/MainPageLogo/pawnLogo.png" alt="strategy logo" style="width:50px;"><p>STRATEGY</p>
+  </a>
+  <a href="#" class="w3-bar-item w3-button w3-padding-large w3-hover-purple">
+    <img src="../Images/MainPageLogo/target.png" alt="Skill logo " style="width:50px;"><p>SKILL</p>
+  </a>
+  <a href="#" class="w3-bar-item w3-button w3-padding-large w3-hover-purple">
+    <img src="../Images/Brain.png" alt="logic logo " style="width:50px;"><p>LOGIC</p>
+  </a>
+  <a href="#" class="w3-bar-item w3-button w3-padding-large w3-hover-purple">
+    <img src="../Images/MainPageLogo/PapaLouieLogo.jpg" alt="Game Series logo" style="width:50px;"><p>FlipLine</p>
+  </a>
+</nav>
+
+<!-- Page Content -->
+<div class="w3-padding-large" id="main">
+
+  <!-- Header -->
+  <div class="w3-container w3-padding-32 w3-center w3-black" style="color: white;">
+  <h1 class="w3-jumbo"><b>HTML Based Games</b></h1>
+
+  <p>
+    We know not everyone likes AI, so we have a game section specifically for games made
+    partially or fully made by <b>AI</b>.
+  </p>
+
+  <p>
+    This is because we respect people who put time and soul into free games, and we at 
+    <b>Arcade Archives</b> feel it would be disrespectful to put <b>real people's games</b> next to a 
+    <b>soulless AI's game</b>.
+  </p>
+
+  <img src="../Images/MainPageLogo/PapaLouieLogo.jpg" alt="Logo" width="300" height="300">
+</div>
+
+
+  <!-- FlipLine Games Tables -->
+  <div class="table-container">
+    
+    <!-- Table 1 -->
+    <div class="table-wrapper">
+      <h2>Ai Orginals</h2>
+      <table>
+        <tr>
+          <td><a href="./AiDemo/BlockBlasters.html"><img src="../Images/AIDemoIcons/BlockBlaster.jpg" alt="AiDemo-BlockBlasters"></a></td>
+          <td><a href="./AiDemo/Jumper.html"><img src="../Images/AIDemoIcons/Jumper.jpg" alt="AiDemo-Jumper"></a></td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Table 2 -->
+    <div class="table-wrapper">
+      <h2>Ai Remakes Of classics</h2>
+      <table>
+        <tr>
+          <td><a href="./AiDemo/Tetmis.html"><img src="../Images/AIDemoIcons/Temis.png" alt="Tetmis"></a></td>
+          <td><a href="./cactusmccoy2/index.html"><img src="./cactusmccoy2/cactusmccoy2_100x100.jpg" alt="Platformer 2"></a></td>
+        </tr>
+        <tr>
+          <td><a href="./papalouie/index.html"><img src="./papalouie/papalouie_100x100.jpg" alt="Papa Louie"></a></td>
+          <td><a href="./papalouie2/index.html"><img src="./papalouie2/papalouie2_100x100.jpg" alt="Papa Louie 2"></a></td>
+         </tr>
+          <tr>
+          <td><a href="./papalouie3/index.html"><img src="./papalouie3/papalouie3_100x100.jpg" alt="Papa Louie"></a></td>
+      </table>
+    </div>
+  <div class="table-wrapper">
+    <h2>Other Games</h2>
+    <table>
+      <tr>
+        <td><a href="./jacksmith/index.html"><img src="./jacksmith/jacksmith_100x100.jpg" alt="JackSmith"></a></td>
+        <td><a href="./rockgarden/index.html"><img src="./rockgarden/rockgarden_100x100.jpg" alt="Rock Garden"></a></td>
+      </tr>
+    </table>
+  </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="w3-content w3-padding-64 w3-text-grey w3-xlarge">
+    <p class="w3-medium">Powered by <a href="https://www.w3schools.com/w3css/default.asp" target="_blank" class="w3-hover-text-green">w3.css</a> and Github Pages. We do not claim ownership of games. Everything belongs to the original creators.</p>
+  </footer>
+
+</div>
+</body>
+</html>
