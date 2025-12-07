@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-  <title>Mobile Tetris — Clean Rebuild (Ghost + Tap/Hold Drop + Auto-Restart)</title>
+  <title>Mobile Tetmis — Clean Rebuild (Ghost + Tap/Hold Drop + Auto-Restart)</title>
   <!-- Public font for normalized buttons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -277,23 +277,29 @@
       Draw();
     }
 
-    // Drawing
+    // Drawing helpers
     function DrawCell(x,y,val,options={}){
       const s = Config.CellSize;
+      // Ghost (soft shadow) — keep this exactly as-is per your request
       if(options.ghost){
         Ctx.globalAlpha = 0.25;
         Ctx.fillStyle = Config.Colors[val] || '#fff';
         Ctx.fillRect(x*s,y*s,s-1,s-1);
         Ctx.globalAlpha = 1;
-        Ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        // ghost outline left intact
+        Ctx.strokeStyle = '#000000';
+        Ctx.lineWidth = 3;
         Ctx.strokeRect(x*s,y*s,s-1,s-1);
         return;
       }
+
+      // Normal block fill + subtle edge (restored to subtle)
       Ctx.fillStyle = Config.Colors[val] || '#000';
       Ctx.fillRect(x*s,y*s,s-1,s-1);
       if(val){
-        Ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-        Ctx.strokeRect(x*s,y*s,s-1,s-1);
+        Ctx.strokeStyle = 'rgba(255,255,255,0.08)'; // subtle highlight
+        Ctx.lineWidth = 1;
+        Ctx.strokeRect(x*s + 0.5, y*s + 0.5, s - 2, s - 2);
       }
     }
 
@@ -311,35 +317,105 @@
       }
     }
 
-    function Draw(){
-      Ctx.clearRect(0,0,Canvas.width,Canvas.height);
-      for(let r=0;r<Config.Rows;r++) for(let c=0;c<Config.Cols;c++) DrawCell(c,r,Board[r][c]);
-      DrawGhost();
-      if(CurrentPiece){
-        const M = CurrentPiece.Matrix;
-        for(let r=0;r<M.length;r++) for(let c=0;c<M[r].length;c++){
+    function DrawNext(){
+      NextCtx.clearRect(0,0,NextCanvas.width,NextCanvas.height);
+      if(!NextPiece) return;
+
+      // soft subtle border for preview area
+      NextCtx.strokeStyle = 'rgba(255,255,255,0.04)';
+      NextCtx.lineWidth = 2;
+      NextCtx.strokeRect(6,6,NextCanvas.width-12,NextCanvas.height-12);
+
+      const cell = Math.floor(NextCanvas.width/4);
+      const M = NextPiece.Matrix;
+      const rows = M.length;
+      const cols = M[0].length;
+      const offsetX = Math.floor((NextCanvas.width - cols*cell)/2);
+      const offsetY = Math.floor((NextCanvas.height - rows*cell)/2);
+
+      for(let r=0;r<rows;r++){
+        for(let c=0;c<cols;c++){
           if(M[r][c]){
-            const br = CurrentPiece.Row + r;
-            const bc = CurrentPiece.Col + c;
-            if(br>=0) DrawCell(bc, br, CurrentPiece.Id);
+            const x = offsetX + c*cell;
+            const y = offsetY + r*cell;
+
+            // Fill with small padding so pieces look spaced
+            NextCtx.fillStyle = Config.Colors[NextPiece.Id] || '#fff';
+            NextCtx.fillRect(x+2,y+2,cell-4,cell-4);
+
+            // subtle outline for preview piece
+            NextCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+            NextCtx.lineWidth = 1;
+            NextCtx.strokeRect(x+2,y+2,cell-4,cell-4);
           }
         }
       }
     }
 
-    function DrawNext(){
-      NextCtx.clearRect(0,0,NextCanvas.width,NextCanvas.height);
-      if(!NextPiece) return;
-      const cell = Math.floor(NextCanvas.width/4);
-      const M = NextPiece.Matrix;
-      for(let r=0;r<M.length;r++) for(let c=0;c<M[r].length;c++){
-        if(M[r][c]){
-          const x = c*cell + 8;
-          const y = r*cell + 8;
-          NextCtx.fillStyle = Config.Colors[NextPiece.Id] || '#fff';
-          NextCtx.fillRect(x,y,cell-4,cell-4);
+    // core Draw function
+    function Draw(){
+      // clear board canvas
+      Ctx.clearRect(0,0,Canvas.width,Canvas.height);
+
+      // board border (thick navy-light-gray, slightly inset so cells aren't fully overlapped)
+      Ctx.lineWidth = 6;
+      Ctx.strokeStyle = '#7F98A8'; // navy-light-gray
+      Ctx.strokeRect(3, 3, Canvas.width - 6, Canvas.height - 6);
+
+      // subtle inner rim for a cleaner look
+      Ctx.lineWidth = 2;
+      Ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      Ctx.strokeRect(6, 6, Canvas.width - 12, Canvas.height - 12);
+
+      // draw placed blocks
+      for(let r=0;r<Config.Rows;r++){
+        for(let c=0;c<Config.Cols;c++){
+          const v = Board[r][c];
+          if(v) DrawCell(c,r,v);
         }
       }
+
+      // draw ghost under current piece
+      DrawGhost();
+
+      // draw current piece
+      if(CurrentPiece){
+        const M = CurrentPiece.Matrix;
+        for(let r=0;r<M.length;r++){
+          for(let c=0;c<M[r].length;c++){
+            if(M[r][c]){
+              const br = CurrentPiece.Row + r;
+              const bc = CurrentPiece.Col + c;
+              if(br>=0) DrawCell(bc, br, CurrentPiece.Id);
+            }
+          }
+        }
+      }
+
+      // draw white thin grid lines (inside the border)
+      const s = Config.CellSize;
+      Ctx.lineWidth = 0.6;
+      Ctx.strokeStyle = '#FFFFFF'; // white thin grid
+      // vertical lines
+      for(let c=0;c<=Config.Cols;c++){
+        const x = c*s + 0.5;
+        Ctx.beginPath();
+        Ctx.moveTo(x, 0);
+        Ctx.lineTo(x, Canvas.height);
+        Ctx.stroke();
+      }
+      // horizontal lines
+      for(let r=0;r<=Config.Rows;r++){
+        const y = r*s + 0.5;
+        Ctx.beginPath();
+        Ctx.moveTo(0, y);
+        Ctx.lineTo(Canvas.width, y);
+        Ctx.stroke();
+      }
+
+      // update next preview and HUD
+      DrawNext();
+      UpdateHUD();
     }
 
     // Input
@@ -399,7 +475,7 @@
     StartBtn.addEventListener('click', ()=>{ StartGame(); });
     PauseBtn.addEventListener('click', ()=>{ PauseGame(); });
 
-    // Initialize
+    // Initialize — draw initial empty board and preview
     Draw();
 
   </script>
