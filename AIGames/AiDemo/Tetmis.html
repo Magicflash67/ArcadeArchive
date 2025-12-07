@@ -30,7 +30,7 @@
 </head>
 <body>
   <div class="App">
-    <h2>Mobile TetMis — Clean Rebuild</h2>
+    <h2>Mobile Tetmis — Clean Rebuild</h2>
     <div class="GameWrap">
       <canvas id="GameCanvas" aria-label="Tetris board"></canvas>
       <div class="Sidebar">
@@ -480,5 +480,48 @@
     Draw();
 
   </script>
+  <script>
+function ResizeGame(){
+  const GameWrap = document.querySelector('.GameWrap');
+  const Sidebar = document.querySelector('.Sidebar');
+
+  // Full viewport minus padding
+  const maxWidth = window.innerWidth - 24; // body padding
+  const maxHeight = window.innerHeight - 100; // account for header/footer
+
+  const cols = Config.Cols;
+  const rows = Config.Rows;
+
+  // Compute max cell size that fits screen
+  let cellSize = Math.floor(Math.min(
+    maxWidth / (cols + 3), // +3 for sidebar buffer
+    maxHeight / rows
+  ));
+
+  // Minimum and maximum limits
+  cellSize = Math.max(16, Math.min(cellSize, 32));
+  Config.CellSize = cellSize;
+
+  // Set canvas dimensions
+  Canvas.width = cols * cellSize;
+  Canvas.height = rows * cellSize;
+  Canvas.style.width = Canvas.width + 'px';
+  Canvas.style.height = Canvas.height + 'px';
+
+  // Scale NextCanvas proportionally
+  const nextSize = cellSize * 4;
+  NextCanvas.width = nextSize;
+  NextCanvas.height = nextSize;
+  NextCanvas.style.width = nextSize + 'px';
+  NextCanvas.style.height = nextSize + 'px';
+
+  Draw();
+}
+
+// Call on load and resize
+window.addEventListener('resize', ResizeGame);
+ResizeGame();
+</script>
+
 </body>
 </html>
