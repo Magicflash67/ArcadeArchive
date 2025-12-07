@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>Mobile Tetris — Clean Rebuild (Ghost + Tap/Hold Drop + Auto-Restart)</title>
+  <!-- Public font for normalized buttons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root{--cell-size:calc(min(9vw,40px));--cols:10;--rows:20}
+    html,body{height:100%;margin:0;font-family:Roboto,system-ui,Segoe UI,Helvetica,Arial;background:#06101a;color:#cfe8ff}
+    .App{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px}
+    .GameWrap{display:flex;gap:12px;align-items:flex-start}
+    canvas{background:#07121a;border-radius:8px;box-shadow:0 6px 18px rgba(2,6,23,.6)}
+    .Sidebar{display:flex;flex-direction:column;gap:8px}
+    .InfoBox{background:#0f1724;color:#cfe8ff;padding:8px;border-radius:8px;min-width:120px;text-align:center}
+    .Controls{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}
+    .Btn{padding:10px 12px;border-radius:10px;background:#162035;color:white;font-weight:600;border:0;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2);user-select:none}
+    .Btn:active{transform:translateY(1px)}
+    .TouchRow{display:flex;gap:8px}
+    .BigBtn{padding:14px 10px;border-radius:12px;font-size:18px}
+    .HUD{display:flex;flex-direction:column;gap:6px}
+    .Footer{font-size:12px;color:#9fb7d9;margin-top:8px}
+    button:focus{outline:3px solid rgba(255,255,255,0.08)}
+    @media(min-width:720px){:root{--cell-size:28px}}
+  </style>
+</head>
+<body>
+  <div class="App">
+    <h2>Mobile Tetris — Clean Rebuild</h2>
+    <div class="GameWrap">
+      <canvas id="GameCanvas" aria-label="Tetris board"></canvas>
+      <div class="Sidebar">
+        <div class="InfoBox">Score: <span id="Score">0</span></div>
+        <div class="InfoBox">Level: <span id="Level">1</span></div>
+        <div class="InfoBox">Lines: <span id="Lines">0</span></div>
+        <div class="InfoBox">Next</div>
+        <canvas id="NextCanvas" width="120" height="120" style="background:#07101a;border-radius:6px"></canvas>
+        <div class="Controls">
+          <button id="StartBtn" class="Btn">Start</button>
+          <button id="PauseBtn" class="Btn">Pause</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile touch controls -->
+    <div style="width:100%;max-width:520px;margin-top:8px">
+      <div class="TouchRow" style="justify-content:space-between;align-items:center">
+        <div style="display:flex;gap:8px;flex:1">
+          <button id="LeftBtn" class="Btn BigBtn" style="flex:1">◀</button>
+          <button id="RotateBtn" class="Btn BigBtn" style="flex:1">⤴</button>
+          <button id="RightBtn" class="Btn BigBtn" style="flex:1">▶</button>
+        </div>
+        <div style="width:120px;display:flex;flex-direction:column;gap:8px">
+          <!-- Single merged drop control: tap = soft drop, hold = hard drop -->
+          <button id="DropControlBtn" class="Btn BigBtn">↓</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="Footer">Keyboard: ← → ↓ (soft) · Z/X rotate · Space (hard). Tap the down button to move down; hold to drop.</div>
+  </div>
+
+  <script>
+    // PascalCase naming
+    const Config = {Cols:10, Rows:20, CellSize: null, Colors:['#000000','#00f0f0','#0000f0','#f0a000','#f0f000','#00f000','#a000f0','#f00000']};
+
+    const Canvas = document.getElementById('GameCanvas');
+    const Ctx = Canvas.getContext('2d');
+    const NextCanvas = document.getElementById('NextCanvas');
+    const NextCtx = NextCanvas.getContext('2d');
+
+    const ScoreEl = document.getElementById('Score');
+    const LevelEl = document.getElementById('Level');
+    const LinesEl = document.getElementById('Lines');
+
+    function InitCanvasSize(){
+      const cs = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell-size')) || 28;
+      Config.CellSize = cs;
+      Canvas.width = Config.Cols * cs;
+      Canvas.height = Config.Rows * cs;
+      Canvas.style.width = (Config.Cols*cs)+'px';
+      Canvas.style.height = (Config.Rows*cs)+'px';
+    }
+    InitCanvasSize();
+    window.addEventListener('resize', InitCanvasSize);
+
+    // Pieces
+    const Shapes = {
+      I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+      J: [[2,0,0],[2,2,2],[0,0,0]],
+      L: [[0,0,3],[3,3,3],[0,0,0]],
+      O: [[4,4],[4,4]],
+      S: [[0,5,5],[5,5,0],[0,0,0]],
+      T: [[0,6,0],[6,6,6],[0,0,0]],
+      Z: [[7,7,0],[0,7,7],[0,0,0]]
+    };
+    const PieceKeys = Object.keys(Shapes);
+
+    function CreateMatrix(rows,cols){
+      return Array.from({length:rows},()=>new Array(cols).fill(0));
+    }
+
+    // Game state
+    let Board = CreateMatrix(Config.Rows, Config.Cols);
+    let CurrentPiece = null;
+    let NextPiece = null;
+    let GameInterval = null;
+    let DropSpeed = 700;
+    let Score = 0, Level = 1, Lines = 0;
+    let IsRunning = false;
+
+    // Helpers
+    function GeneratePiece(){
+      const key = PieceKeys[Math.floor(Math.random()*PieceKeys.length)];
+      const matrix = Shapes[key].map(row=>row.slice());
+      const Idx = PieceKeys.indexOf(key)+1;
+      return {Key:key,Matrix:matrix,Id:Idx,Row:0,Col:0};
+    }
+
+    function RotateMatrix(matrix){
+      const N = matrix.length;
+      const Result = Array.from({length:N},()=>Array.from({length:N},()=>0));
+      for(let r=0;r<N;r++) for(let c=0;c<N;c++) Result[c][N-1-r] = matrix[r][c];
+      return Result;
+    }
+
+    function Collides(board,piece,offsetRow=0,offsetCol=0){
+      const M = piece.Matrix;
+      for(let r=0;r<M.length;r++){
+        for(let c=0;c<M[r].length;c++){
+          if(M[r][c]){
+            const br = piece.Row + r + offsetRow;
+            const bc = piece.Col + c + offsetCol;
+            if(br<0 || br>=Config.Rows || bc<0 || bc>=Config.Cols) return true;
+            if(board[br][bc]) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function MergePieceToBoard(){
+      const M = CurrentPiece.Matrix;
+      for(let r=0;r<M.length;r++) for(let c=0;c<M[r].length;c++){
+        if(M[r][c]){
+          const br = CurrentPiece.Row + r;
+          const bc = CurrentPiece.Col + c;
+          if(br>=0 && br<Config.Rows && bc>=0 && bc<Config.Cols) Board[br][bc] = CurrentPiece.Id;
+        }
+      }
+      ClearLines();
+    }
+
+    function ClearLines(){
+      let cleared = 0;
+      for(let r=Config.Rows-1;r>=0;r--){
+        if(Board[r].every(v=>v!==0)){
+          Board.splice(r,1);
+          Board.unshift(new Array(Config.Cols).fill(0));
+          cleared++;
+          r++;
+        }
+      }
+      if(cleared>0){
+        Lines += cleared;
+        Score += (cleared===1?100:cleared===2?300:cleared===3?500:800) * Level;
+        Level = Math.floor(Lines/10)+1;
+        DropSpeed = Math.max(100,700 - (Level-1)*60);
+        UpdateHUD();
+        ResetInterval();
+      }
+    }
+
+    function UpdateHUD(){
+      ScoreEl.textContent = Score;
+      LevelEl.textContent = Level;
+      LinesEl.textContent = Lines;
+    }
+
+    // Spawn / game over behavior
+    function SpawnPiece(){
+      if(!NextPiece) NextPiece = GeneratePiece();
+      CurrentPiece = NextPiece;
+      NextPiece = GeneratePiece();
+      CurrentPiece.Row = 0;
+      CurrentPiece.Col = Math.floor((Config.Cols - CurrentPiece.Matrix[0].length)/2);
+      // If spawn collides immediately => restart the game (auto-restart)
+      if(Collides(Board, CurrentPiece)){
+        RestartGame();
+        return;
+      }
+      DrawNext();
+    }
+
+    function RestartGame(){
+      // soft restart: reset board, stats and start again immediately
+      if(GameInterval) clearInterval(GameInterval);
+      Board = CreateMatrix(Config.Rows, Config.Cols);
+      CurrentPiece = null; NextPiece = null;
+      Score = 0; Level = 1; Lines = 0; DropSpeed = 700; IsRunning = true;
+      UpdateHUD();
+      StartGame();
+    }
+
+    function StartGame(){
+      // If already running, reset and start fresh
+      if(GameInterval) clearInterval(GameInterval);
+      if(!IsRunning) IsRunning = true;
+      if(!CurrentPiece) SpawnPiece();
+      ResetInterval();
+      Draw();
+    }
+
+    function PauseGame(){
+      IsRunning = !IsRunning;
+      document.getElementById('PauseBtn').textContent = IsRunning ? 'Pause' : 'Resume';
+    }
+
+    function ResetInterval(){
+      if(GameInterval) clearInterval(GameInterval);
+      if(IsRunning){
+        GameInterval = setInterval(()=>{ MovePieceDown(); }, DropSpeed);
+      }
+    }
+
+    // Movement
+    function MovePieceDown(){
+      if(!CurrentPiece) return;
+      if(!Collides(Board, CurrentPiece, 1, 0)){
+        CurrentPiece.Row++;
+      } else {
+        MergePieceToBoard();
+        SpawnPiece();
+      }
+      Draw();
+    }
+
+    function MovePieceLeft(){
+      if(!CurrentPiece) return;
+      if(!Collides(Board, CurrentPiece, 0, -1)){
+        CurrentPiece.Col--;
+        Draw();
+      }
+    }
+
+    function MovePieceRight(){
+      if(!CurrentPiece) return;
+      if(!Collides(Board, CurrentPiece, 0, 1)){
+        CurrentPiece.Col++;
+        Draw();
+      }
+    }
+
+    function RotatePiece(){
+      if(!CurrentPiece) return;
+      const Rot = RotateMatrix(CurrentPiece.Matrix);
+      const Prev = CurrentPiece.Matrix;
+      CurrentPiece.Matrix = Rot;
+      // simple wall kick
+      const kicks = [[0,0],[0,-1],[0,1],[-1,0],[1,0],[0,-2],[0,2]];
+      let ok = false;
+      for(const k of kicks){
+        if(!Collides(Board, CurrentPiece, k[0], k[1])){ CurrentPiece.Row += k[0]; CurrentPiece.Col += k[1]; ok = true; break; }
+      }
+      if(!ok) CurrentPiece.Matrix = Prev;
+      Draw();
+    }
+
+    function HardDrop(){
+      if(!CurrentPiece) return;
+      while(!Collides(Board, CurrentPiece, 1, 0)) CurrentPiece.Row++;
+      MergePieceToBoard();
+      SpawnPiece();
+      Draw();
+    }
+
+    // Drawing
+    function DrawCell(x,y,val,options={}){
+      const s = Config.CellSize;
+      if(options.ghost){
+        Ctx.globalAlpha = 0.25;
+        Ctx.fillStyle = Config.Colors[val] || '#fff';
+        Ctx.fillRect(x*s,y*s,s-1,s-1);
+        Ctx.globalAlpha = 1;
+        Ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        Ctx.strokeRect(x*s,y*s,s-1,s-1);
+        return;
+      }
+      Ctx.fillStyle = Config.Colors[val] || '#000';
+      Ctx.fillRect(x*s,y*s,s-1,s-1);
+      if(val){
+        Ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        Ctx.strokeRect(x*s,y*s,s-1,s-1);
+      }
+    }
+
+    function DrawGhost(){
+      if(!CurrentPiece) return;
+      const Ghost = {Matrix: CurrentPiece.Matrix, Col: CurrentPiece.Col, Row: CurrentPiece.Row, Id: CurrentPiece.Id};
+      while(!Collides(Board, Ghost, 1, 0)) Ghost.Row++;
+      const M = Ghost.Matrix;
+      for(let r=0;r<M.length;r++) for(let c=0;c<M[r].length;c++){
+        if(M[r][c]){
+          const br = Ghost.Row + r;
+          const bc = Ghost.Col + c;
+          if(br>=0) DrawCell(bc, br, Ghost.Id, {ghost:true});
+        }
+      }
+    }
+
+    function Draw(){
+      Ctx.clearRect(0,0,Canvas.width,Canvas.height);
+      for(let r=0;r<Config.Rows;r++) for(let c=0;c<Config.Cols;c++) DrawCell(c,r,Board[r][c]);
+      DrawGhost();
+      if(CurrentPiece){
+        const M = CurrentPiece.Matrix;
+        for(let r=0;r<M.length;r++) for(let c=0;c<M[r].length;c++){
+          if(M[r][c]){
+            const br = CurrentPiece.Row + r;
+            const bc = CurrentPiece.Col + c;
+            if(br>=0) DrawCell(bc, br, CurrentPiece.Id);
+          }
+        }
+      }
+    }
+
+    function DrawNext(){
+      NextCtx.clearRect(0,0,NextCanvas.width,NextCanvas.height);
+      if(!NextPiece) return;
+      const cell = Math.floor(NextCanvas.width/4);
+      const M = NextPiece.Matrix;
+      for(let r=0;r<M.length;r++) for(let c=0;c<M[r].length;c++){
+        if(M[r][c]){
+          const x = c*cell + 8;
+          const y = r*cell + 8;
+          NextCtx.fillStyle = Config.Colors[NextPiece.Id] || '#fff';
+          NextCtx.fillRect(x,y,cell-4,cell-4);
+        }
+      }
+    }
+
+    // Input
+    window.addEventListener('keydown',(e)=>{
+      if(!IsRunning && e.key!=='Escape') return;
+      if(e.key==='ArrowLeft'){ MovePieceLeft(); e.preventDefault(); }
+      if(e.key==='ArrowRight'){ MovePieceRight(); e.preventDefault(); }
+      if(e.key==='ArrowDown'){ MovePieceDown(); e.preventDefault(); }
+      if(e.key==='z' || e.key==='Z'){ RotatePiece(); e.preventDefault(); }
+      if(e.key==='x' || e.key==='X'){ RotatePiece(); e.preventDefault(); }
+      if(e.key===' '){ HardDrop(); e.preventDefault(); }
+      if(e.key==='p'){ PauseGame(); }
+    });
+
+    // Button wiring (explicit, no undefined maps)
+    const LeftBtn = document.getElementById('LeftBtn');
+    const RightBtn = document.getElementById('RightBtn');
+    const RotateBtn = document.getElementById('RotateBtn');
+    const DropControlBtn = document.getElementById('DropControlBtn');
+    const StartBtn = document.getElementById('StartBtn');
+    const PauseBtn = document.getElementById('PauseBtn');
+
+    // Left / Right / Rotate: support hold-to-repeat
+    function AddHoldSupport(el, fn, repeat=false){
+      if(!el) return;
+      let holdTimer = null;
+      const StartHold = (ev)=>{ ev.preventDefault(); fn(); if(repeat && !holdTimer) holdTimer = setInterval(fn,120); };
+      const ClearHold = (ev)=>{ if(ev){ ev.preventDefault(); } if(holdTimer){ clearInterval(holdTimer); holdTimer = null; } };
+      el.addEventListener('touchstart', StartHold, {passive:false});
+      el.addEventListener('touchend', ClearHold, {passive:false});
+      el.addEventListener('touchcancel', ClearHold, {passive:false});
+      el.addEventListener('mousedown', StartHold);
+      el.addEventListener('mouseup', ClearHold);
+      el.addEventListener('mouseleave', ClearHold);
+      // prevent double activation
+      el.addEventListener('click', (ev)=>{ ev.preventDefault(); });
+    }
+
+    AddHoldSupport(LeftBtn, MovePieceLeft, true);
+    AddHoldSupport(RightBtn, MovePieceRight, true);
+    AddHoldSupport(RotateBtn, RotatePiece, false);
+
+    // Drop control: tap = soft drop, hold = hard drop
+    if(DropControlBtn){
+      let holdTimeout = null;
+      const TouchStart = (ev)=>{ ev.preventDefault(); MovePieceDown(); holdTimeout = setTimeout(()=>{ HardDrop(); }, 350); };
+      const TouchEnd = (ev)=>{ ev.preventDefault(); if(holdTimeout){ clearTimeout(holdTimeout); holdTimeout = null; } };
+      DropControlBtn.addEventListener('touchstart', TouchStart, {passive:false});
+      DropControlBtn.addEventListener('touchend', TouchEnd, {passive:false});
+      DropControlBtn.addEventListener('touchcancel', TouchEnd, {passive:false});
+      DropControlBtn.addEventListener('mousedown', (ev)=>{ ev.preventDefault(); MovePieceDown(); holdTimeout = setTimeout(()=>{ HardDrop(); }, 350); });
+      DropControlBtn.addEventListener('mouseup', (ev)=>{ ev.preventDefault(); if(holdTimeout){ clearTimeout(holdTimeout); holdTimeout = null; } });
+      DropControlBtn.addEventListener('mouseleave', (ev)=>{ ev.preventDefault(); if(holdTimeout){ clearTimeout(holdTimeout); holdTimeout = null; } });
+    }
+
+    // Start / Pause wiring
+    StartBtn.addEventListener('click', ()=>{ StartGame(); });
+    PauseBtn.addEventListener('click', ()=>{ PauseGame(); });
+
+    // Initialize
+    Draw();
+
+  </script>
+</body>
+</html>
